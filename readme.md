@@ -21,7 +21,7 @@
 ## 🔧 安装方式
 ```bash
 # 克隆仓库
-git clone https://github.com/your-repo/asset-viewer.git
+git clone https://github.com/rirmk/AssetViewer.git
 
 # 浏览器加载
 1. 访问 chrome://extensions/
@@ -36,30 +36,11 @@ git clone https://github.com/your-repo/asset-viewer.git
 2. 拖拽标题栏移动窗口位置
 3. 点击「👀 预览」查看大图
 4. 点击「↓ 下载」保存资源
-### 动态资源加载
-```javascript
-// 支持MutationObserver自动刷新
-showAssets(); // 防抖处理过的核心函数
- ```
-
-### 下载命名规则
-```text
-命名逻辑：
-原始alt文本 → 过滤非法字符 → 截取前30字符 → 追加扩展名
-
-示例：
-alt="夏日风景图-2023" → 夏日风景图_2023.jpg
- ```
 
 ## ⚠️ 注意事项
-- 需要以下权限：
-  - <all_urls> 网络访问
-  - downloads 下载API
-  - downloads.open 文件系统访问
 - 已知限制：
   - 不支持跨域资源下载
   - 动态加载资源需手动刷新
   - WebP转换依赖浏览器支持
-## 📜 版权声明
-MIT License © 2025 [rirmk]
-问题反馈： suguobang@gmail.com
+
+如果 AssetViewer 给您的生活带来了快乐，请随意支持它。
