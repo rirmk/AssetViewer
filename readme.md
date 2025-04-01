@@ -21,7 +21,7 @@
 ## 🔧 安装方式
 ```bash
 # 克隆仓库
-git clone https://github.com/your-repo/asset-viewer.git
+git clone https://github.com/rirmk/AssetViewer.git
 
 # 浏览器加载
 1. 访问 chrome://extensions/
