@@ -36,6 +36,7 @@ git clone https://github.com/rirmk/AssetViewer.git
 2. 拖拽标题栏移动窗口位置
 3. 点击「👀 预览」查看大图
 4. 点击「↓ 下载」保存资源
+![image](https://github.com/rirmk/AssetViewer/blob/master/img/xg.png)
 
 ## ⚠️ 注意事项
 - 已知限制：
@@ -44,5 +45,4 @@ git clone https://github.com/rirmk/AssetViewer.git
   - WebP转换依赖浏览器支持
 
 如果 AssetViewer 给您的生活带来了快乐，请随意支持它。
-![image](https://github.com/rirmk/AssetViewer/blob/master/img/wx.png)
-![image](https://github.com/rirmk/AssetViewer/blob/master/img/zfb.png)
+![image](https://github.com/rirmk/AssetViewer/blob/master/img/sk.jpg)
