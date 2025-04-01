@@ -44,3 +44,5 @@ git clone https://github.com/rirmk/AssetViewer.git
   - WebP转换依赖浏览器支持
 
 如果 AssetViewer 给您的生活带来了快乐，请随意支持它。
+![image](https://github.com/rirmk/AssetViewer/blob/master/img/wx.png)
+![image](https://github.com/rirmk/AssetViewer/blob/master/img/zfb.png)
