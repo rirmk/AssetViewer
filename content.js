@@ -159,9 +159,18 @@ function showAssets() {
     // 先断开观察避免循环
     if(observer) observer.disconnect();
 
+    const srcSet = new Set(); // 仅保留src集合
     const resources = [
         ...document.querySelectorAll('img')
-    ].map(el => ({
+    ].filter(img => {
+        const src = img.src.split('?')[0]; // 去除URL参数比较基础路径
+        
+        // 仅当src重复时过滤
+        if (srcSet.has(src)) return false;
+        
+        srcSet.add(src);
+        return true;
+    }).map(el => ({
         url: el.src,
         alt: el.alt,
         type: el.tagName.toLowerCase()
