@@ -42,7 +42,6 @@ git clone https://github.com/rirmk/AssetViewer.git
 ## ⚠️ 注意事项
 - 已知限制：
   - 不支持跨域资源下载
-  - 动态加载资源需手动刷新
   - WebP转换依赖浏览器支持
 
 如果 AssetViewer 给您的生活带来了快乐，请随意支持它。
