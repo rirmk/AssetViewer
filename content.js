@@ -1,79 +1,108 @@
-// 创建资源悬浮窗
-const assetPanel = document.createElement('div');
-assetPanel.id = 'asset-panel';
-document.body.appendChild(assetPanel);
+let currentResources; // 新增在文件顶部
 
-// 收集并展示资源
-let debounceTimer;
-const debounceDelay = 300;
+// 工具函数
+const getFileExtension = (url) => {
+    const match = url.match(/\.([a-z0-9]+)(?:[\?#]|$)/i);
+    return match ? '.' + match[1] : '.jpg';
+};
 
-function showAssets() {
-    // 先断开观察避免循环
-    if (observer) observer.disconnect();
-    const srcSet = new Set(); // 仅保留src集合
-    const resources = [
-        ...document.querySelectorAll('img')
-    ].filter(img => {
-        const src = img.src.split('?')[0]; // 去除URL参数比较基础路径
-        // 仅当src重复时过滤
-        if (srcSet.has(src)) return false;
-        srcSet.add(src);
-        return true;
-    }).map(el => ({
-        url: el.src,
-        alt: el.alt,
-        type: el.tagName.toLowerCase()
-    }));
+const generateFileName = (altText, url) => {
+    return altText
+        .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')
+        .substring(0, 30) + getFileExtension(url);
+};
 
-    assetPanel.innerHTML = `
+// 资源收集
+function collectResources() {
+    const srcSet = new Set();
+    return [...document.querySelectorAll('img')]
+        .filter(img => {
+            const src = img.src.split('?')[0];
+            return !srcSet.has(src) && srcSet.add(src);
+        })
+        .map(el => ({
+            url: el.src,
+            alt: el.alt,
+            type: el.tagName.toLowerCase()
+        }));
+}
+
+// 视图渲染
+function renderAssetPanel(resources) {
+    return `
         <div class="header">
             <h3 style="margin:0; display: inline-block; color: #212529">页面资源 (${resources.length})</h3>
-            
-            <!-- 新增搜索框 -->
             <input type="search" class="search-input" placeholder="搜索资源...">
-            
-            <button id="close-panel" style="float:right; padding:2px 8px; background: #dc3545; color:white; border:none; border-radius:4px;">×</button>
+            <button id="close-panel">×</button>
         </div>
-        
-        <!-- 新增过滤控件 -->
         <div class="filter-controls">
-            <label>
-                <input type="checkbox" class="filter-checkbox" data-type="empty-alt"> 
-                <span>隐藏无描述文本</span>
-            </label>
-            <label>
-                <input type="checkbox" class="filter-checkbox" data-type="downloaded">
-                <span>隐藏已下载</span>
-            </label>
+            <label><input type="checkbox" class="filter-checkbox" data-type="empty-alt"><span>隐藏无描述文本</span></label>
+            <label><input type="checkbox" class="filter-checkbox" data-type="downloaded"><span>隐藏已下载</span></label>
         </div>
+        <div style="padding:15px">${renderAssetList(resources)}</div>`;
+}
 
-        <div style="padding:15px">
-            ${resources.map(res => `
-                <div class="asset-item">
-                    <img src="${res.url}" onerror="this.style.display='none'">
-                    <div class="asset-item-content">${res.alt || '无描述文本'}</div>
-                    <div class="asset-item-actions">
-                        <button class="preview-btn" 
-                                data-url="${res.url}"
-                                data-alt="${res.alt}">👀 预览</button>
-                        <button class="download-btn" 
-                                data-url="${res.url}"
-                                data-alt="${res.alt}">↓ 下载</button>
-                    </div>
-                </div>
-            `).join('')}
+function renderAssetList(resources) {
+    return resources.map(res => `
+        <div class="asset-item">
+            <img src="${res.url}" onerror="this.style.display='none'">
+            <div class="asset-item-content">${res.alt || '无描述文本'}</div>
+            <div class="asset-item-actions">
+                <button class="preview-btn" data-url="${res.url}">👀 预览</button>
+                <button class="download-btn" data-url="${res.url}">↓ 下载</button>
+            </div>
         </div>
-    `;
+    `).join('');
+}
 
-    // 关闭按钮事件监听
-    assetPanel.querySelector('#close-panel').addEventListener('click', () => {
-        assetPanel.remove();
-    });
+// 事件处理
+function handleDownload(btn) {
+    const url = btn.dataset.url;
+    window.downloadedUrls = window.downloadedUrls || new Set();
+    window.downloadedUrls.add(url);
 
-    // 拖动逻辑
+    chrome.runtime.sendMessage({
+        action: 'download',
+        url: url,
+        filename: generateFileName(btn.dataset.alt || 'unnamed', url)
+    }, () => renderFilteredResources());
+}
+
+function handlePreview(btn) {
+    const overlay = document.createElement('div');
+    overlay.className = 'preview-overlay';
+    const img = new Image();
+    img.className = 'preview-image';
+    img.src = btn.dataset.url;
+
+    img.onerror = () => img.alt = '图片加载失败';
+    img.onclick = e => e.stopPropagation();
+
+    overlay.appendChild(img);
+    overlay.onclick = () => overlay.remove();
+
+    // ESC键关闭
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') overlay.remove();
+    }, { once: true });
+
+    document.body.appendChild(overlay);
+}
+
+// 核心逻辑
+let observer, debounceTimer;
+const assetPanel = (() => {
+    const panel = document.createElement('div');
+    panel.id = 'asset-panel';
+    // 添加初始隐藏状态
+    panel.style.display = 'none';
+    document.body.appendChild(panel);
+    return panel;
+})();
+
+function setupDragHandlers() {
     let isDragging = false;
     let startX, startY, initialX, initialY;
-
     assetPanel.querySelector('.header').addEventListener('mousedown', (e) => {
         isDragging = true;
         startX = e.clientX;
@@ -88,105 +117,100 @@ function showAssets() {
             document.removeEventListener('mousemove', onMouseMove);
         }, { once: true });
     });
-
-    // 在拖拽移动函数中锁定宽度
-    function onMouseMove(e) {
-        if (!isDragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-
-        // 保持原有宽度
-        const currentWidth = assetPanel.offsetWidth;
-
-        // 限制在窗口范围内
-        const newX = Math.max(0, Math.min(window.innerWidth - currentWidth, initialX + dx));
-        const newY = Math.max(0, Math.min(window.innerHeight - assetPanel.offsetHeight, initialY + dy));
-
-        assetPanel.style.left = `${newX}px`;
-        assetPanel.style.top = `${newY}px`;
-    }
-
-    // 预览事件监听
-    assetPanel.querySelectorAll('.preview-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const overlay = document.createElement('div');
-            overlay.className = 'preview-overlay';
-
-            const img = new Image();
-            img.className = 'preview-image';
-            img.src = btn.dataset.url;
-
-            img.onerror = () => img.alt = '图片加载失败';
-            img.onclick = e => e.stopPropagation();
-
-            overlay.appendChild(img);
-            overlay.onclick = () => overlay.remove();
-
-            // ESC键关闭
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') overlay.remove();
-            }, { once: true });
-
-            document.body.appendChild(overlay);
-        });
-    });
-
-    // 下载事件监听
-    assetPanel.querySelectorAll('.download-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const originalUrl = btn.dataset.url;
-            const altText = btn.dataset.alt || 'unnamed'; // 获取alt文本
-            // 生成安全文件名
-            let filename = altText
-                .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') // 替换非法字符
-                .substring(0, 30); // 限制长度
-
-            chrome.runtime.sendMessage({
-                action: 'download',
-                url: originalUrl,
-                filename: filename + getFileExtension(originalUrl) // 添加扩展名
-            });
-        });
-    });
-
-    // 获取文件扩展名的辅助函数
-    function getFileExtension(url) {
-        const match = url.match(/\.([a-z0-9]+)(?:[\?#]|$)/i);
-        return match ? '.' + match[1] : '.jpg';
-    }
-
-    // 防抖的重新观察
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-        startObservation();
-    }, debounceDelay);
 }
 
-// MutationObserver逻辑
-let observer;
+function onMouseMove(e) {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
 
-function startObservation() {
-    observer = new MutationObserver((mutations) => {
-        mutations.forEach(mutation => {
-            // 过滤插件自身产生的变化
-            if (!mutation.target.closest('#asset-panel')) {
-                showAssets();
-            }
-        });
+    // 保持原有宽度
+    const currentWidth = assetPanel.offsetWidth;
+
+    // 限制在窗口范围内
+    const newX = Math.max(0, Math.min(window.innerWidth - currentWidth, initialX + dx));
+    const newY = Math.max(0, Math.min(window.innerHeight - assetPanel.offsetHeight, initialY + dy));
+
+    assetPanel.style.left = `${newX}px`;
+    assetPanel.style.top = `${newY}px`;
+}
+
+function applyFilters() {
+    const searchTerm = assetPanel.querySelector('.search-input').value.toLowerCase();
+    const hideEmptyAlt = assetPanel.querySelector('[data-type="empty-alt"]').checked;
+    const hideDownloaded = assetPanel.querySelector('[data-type="downloaded"]').checked;
+
+    return currentResources.filter(res =>
+        res.alt.toLowerCase().includes(searchTerm) &&
+        (!hideEmptyAlt || res.alt.trim()) &&
+        (!hideDownloaded || !(window.downloadedUrls || new Set()).has(res.url))
+    );
+}
+
+function renderFilteredResources() {
+    const filtered = applyFilters();
+    assetPanel.querySelector('div[style="padding:15px"]').innerHTML = renderAssetList(filtered);
+    
+    // 新增计数更新逻辑
+    const header = assetPanel.querySelector('.header h3');
+    if (header) {
+        header.textContent = `页面资源 (${filtered.length}/${currentResources.length})`;
+    }
+}
+
+function showAssets() {
+    assetPanel.style.display = 'block';
+    if (observer) observer.disconnect();
+
+    // 先保存当前过滤状态（在DOM被替换前）
+    const currentSearch = assetPanel.querySelector('.search-input')?.value || '';
+    const currentEmptyAlt = assetPanel.querySelector('[data-type="empty-alt"]')?.checked || false;
+    const currentDownloaded = assetPanel.querySelector('[data-type="downloaded"]')?.checked || false;
+
+    const resources = collectResources();
+    currentResources = resources;
+    assetPanel.innerHTML = renderAssetPanel(resources);
+
+    // 恢复过滤状态
+    assetPanel.querySelector('.search-input').value = currentSearch;
+    assetPanel.querySelector('[data-type="empty-alt"]').checked = currentEmptyAlt;
+    assetPanel.querySelector('[data-type="downloaded"]').checked = currentDownloaded;
+
+    // 保持原有DOM结构，仅更新资源列表
+    const container = assetPanel.querySelector('div[style="padding:15px"]');
+    if (container) {
+        container.innerHTML = renderAssetList(applyFilters());
+    }
+
+    // 输入框事件绑定
+    assetPanel.addEventListener('input', (e) => {
+        if (e.target.matches('.search-input, .filter-checkbox')) {
+            renderFilteredResources();
+        }
+    });
+    // 关闭按钮事件
+    assetPanel.querySelector('#close-panel').addEventListener('click', () => {
+        assetPanel.style.display = 'none';
+    });
+    assetPanel.querySelector('div[style="padding:15px"]').addEventListener('click', e => {
+        if (e.target.classList.contains('download-btn')) handleDownload(e.target);
+        if (e.target.classList.contains('preview-btn')) handlePreview(e.target);
     });
 
-    observer.observe(document.body, {
+    setupDragHandlers();
+
+    // 防抖逻辑
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => observer.observe(document.body, {
         childList: true,
         subtree: true,
         attributes: true,
         attributeFilter: ['src', 'srcset', 'style']
-    });
+    }), 300);
 }
 
-// 初始化时启动监听
-startObservation();
 
-// 在样式部分添加以下新样式
+// 初始化
 const style = document.createElement('style');
 style.textContent = `
 #asset-panel {
@@ -194,14 +218,14 @@ style.textContent = `
     top: 20px;
     right: 20px;
     width: 400px;
-    height: 70vh;
+    height: 70vh !important;
+    max-width: 400px;
+    max-height: 70vh;
     background: #ffffff;
     border: 1px solid #ddd;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     resize: none;
-    max-width: 400px;
-    max-height: 70vh;
     overflow-y: auto;
     z-index: 9999;
     padding: 15px;
@@ -220,6 +244,35 @@ style.textContent = `
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
+.header #close-panel {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 24px;
+    background: #ff6b6b;
+    color: white;
+    border-radius: 10px;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.header #close-panel:hover {
+    background: #ff5252;
+    transform: translateY(-50%) scale(1.1);
+}
+
+.header #close-panel:active {
+    transform: translateY(-50%) scale(0.9);
+}
+
 #asset-panel {
     display: flex;
     flex-direction: column;
@@ -231,6 +284,8 @@ style.textContent = `
     overflow-y: auto;
     flex: 1;
     padding-top: 5px;
+    min-height: 0;
+    height: calc(100% - 120px); 
 }
 
 .asset-item {
@@ -341,7 +396,7 @@ style.textContent = `
     border-radius: 20px;
     font-size: 14px;
     transition: all 0.3s;
-    max-width: 200px;
+    max-width: 160px;
 }
 
 .search-input:focus {
@@ -404,3 +459,25 @@ style.textContent = `
 }
 `;
 document.head.appendChild(style);
+
+// MutationObserver
+function startObservation() {
+    observer = new MutationObserver(mutations => {
+        if (document.contains(assetPanel)) {
+            mutations.forEach(m => {
+                if (!m.target.closest('#asset-panel') &&
+                    !m.target.contains(assetPanel) &&
+                    m.type !== 'attributes') {
+                    showAssets();
+                }
+            });
+        }
+    });
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset', 'style']
+    });
+}
+startObservation();
