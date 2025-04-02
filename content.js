@@ -3,7 +3,190 @@ const assetPanel = document.createElement('div');
 assetPanel.id = 'asset-panel';
 document.body.appendChild(assetPanel);
 
-// 悬浮窗样式
+// 收集并展示资源
+let debounceTimer;
+const debounceDelay = 300;
+
+function showAssets() {
+    // 先断开观察避免循环
+    if (observer) observer.disconnect();
+    const srcSet = new Set(); // 仅保留src集合
+    const resources = [
+        ...document.querySelectorAll('img')
+    ].filter(img => {
+        const src = img.src.split('?')[0]; // 去除URL参数比较基础路径
+        // 仅当src重复时过滤
+        if (srcSet.has(src)) return false;
+        srcSet.add(src);
+        return true;
+    }).map(el => ({
+        url: el.src,
+        alt: el.alt,
+        type: el.tagName.toLowerCase()
+    }));
+
+    assetPanel.innerHTML = `
+        <div class="header">
+            <h3 style="margin:0; display: inline-block; color: #212529">页面资源 (${resources.length})</h3>
+            
+            <!-- 新增搜索框 -->
+            <input type="search" class="search-input" placeholder="搜索资源...">
+            
+            <button id="close-panel" style="float:right; padding:2px 8px; background: #dc3545; color:white; border:none; border-radius:4px;">×</button>
+        </div>
+        
+        <!-- 新增过滤控件 -->
+        <div class="filter-controls">
+            <label>
+                <input type="checkbox" class="filter-checkbox" data-type="empty-alt"> 
+                <span>隐藏无描述文本</span>
+            </label>
+            <label>
+                <input type="checkbox" class="filter-checkbox" data-type="downloaded">
+                <span>隐藏已下载</span>
+            </label>
+        </div>
+
+        <div style="padding:15px">
+            ${resources.map(res => `
+                <div class="asset-item">
+                    <img src="${res.url}" onerror="this.style.display='none'">
+                    <div class="asset-item-content">${res.alt || '无描述文本'}</div>
+                    <div class="asset-item-actions">
+                        <button class="preview-btn" 
+                                data-url="${res.url}"
+                                data-alt="${res.alt}">👀 预览</button>
+                        <button class="download-btn" 
+                                data-url="${res.url}"
+                                data-alt="${res.alt}">↓ 下载</button>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    // 关闭按钮事件监听
+    assetPanel.querySelector('#close-panel').addEventListener('click', () => {
+        assetPanel.remove();
+    });
+
+    // 拖动逻辑
+    let isDragging = false;
+    let startX, startY, initialX, initialY;
+
+    assetPanel.querySelector('.header').addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = assetPanel.getBoundingClientRect();
+        initialX = rect.left;
+        initialY = rect.top;
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+        }, { once: true });
+    });
+
+    // 在拖拽移动函数中锁定宽度
+    function onMouseMove(e) {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // 保持原有宽度
+        const currentWidth = assetPanel.offsetWidth;
+
+        // 限制在窗口范围内
+        const newX = Math.max(0, Math.min(window.innerWidth - currentWidth, initialX + dx));
+        const newY = Math.max(0, Math.min(window.innerHeight - assetPanel.offsetHeight, initialY + dy));
+
+        assetPanel.style.left = `${newX}px`;
+        assetPanel.style.top = `${newY}px`;
+    }
+
+    // 预览事件监听
+    assetPanel.querySelectorAll('.preview-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const overlay = document.createElement('div');
+            overlay.className = 'preview-overlay';
+
+            const img = new Image();
+            img.className = 'preview-image';
+            img.src = btn.dataset.url;
+
+            img.onerror = () => img.alt = '图片加载失败';
+            img.onclick = e => e.stopPropagation();
+
+            overlay.appendChild(img);
+            overlay.onclick = () => overlay.remove();
+
+            // ESC键关闭
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') overlay.remove();
+            }, { once: true });
+
+            document.body.appendChild(overlay);
+        });
+    });
+
+    // 下载事件监听
+    assetPanel.querySelectorAll('.download-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const originalUrl = btn.dataset.url;
+            const altText = btn.dataset.alt || 'unnamed'; // 获取alt文本
+            // 生成安全文件名
+            let filename = altText
+                .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') // 替换非法字符
+                .substring(0, 30); // 限制长度
+
+            chrome.runtime.sendMessage({
+                action: 'download',
+                url: originalUrl,
+                filename: filename + getFileExtension(originalUrl) // 添加扩展名
+            });
+        });
+    });
+
+    // 获取文件扩展名的辅助函数
+    function getFileExtension(url) {
+        const match = url.match(/\.([a-z0-9]+)(?:[\?#]|$)/i);
+        return match ? '.' + match[1] : '.jpg';
+    }
+
+    // 防抖的重新观察
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+        startObservation();
+    }, debounceDelay);
+}
+
+// MutationObserver逻辑
+let observer;
+
+function startObservation() {
+    observer = new MutationObserver((mutations) => {
+        mutations.forEach(mutation => {
+            // 过滤插件自身产生的变化
+            if (!mutation.target.closest('#asset-panel')) {
+                showAssets();
+            }
+        });
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset', 'style']
+    });
+}
+
+// 初始化时启动监听
+startObservation();
+
+// 在样式部分添加以下新样式
 const style = document.createElement('style');
 style.textContent = `
 #asset-panel {
@@ -148,174 +331,76 @@ style.textContent = `
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.3);
 }
+
+/* 新增搜索框样式 */
+.search-input {
+    flex: 1;
+    margin: 0 15px;
+    padding: 6px 12px;
+    border: 1px solid #dee2e6;
+    border-radius: 20px;
+    font-size: 14px;
+    transition: all 0.3s;
+    max-width: 200px;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* 过滤控件样式 */
+.filter-controls {
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    gap: 20px;
+}
+
+.filter-controls label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: #495057;
+    font-size: 14px;
+}
+
+.filter-checkbox {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #adb5bd;
+    border-radius: 3px;
+    appearance: none;
+    position: relative;
+    cursor: pointer;
+}
+
+.filter-checkbox:checked {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+.filter-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* 调整header布局 */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    gap: 10px;
+}
 `;
 document.head.appendChild(style);
-
-// 收集并展示资源
-let debounceTimer;
-const debounceDelay = 300;
-
-function showAssets() {
-    // 先断开观察避免循环
-    if(observer) observer.disconnect();
-
-    const srcSet = new Set(); // 仅保留src集合
-    const resources = [
-        ...document.querySelectorAll('img')
-    ].filter(img => {
-        const src = img.src.split('?')[0]; // 去除URL参数比较基础路径
-        
-        // 仅当src重复时过滤
-        if (srcSet.has(src)) return false;
-        
-        srcSet.add(src);
-        return true;
-    }).map(el => ({
-        url: el.src,
-        alt: el.alt,
-        type: el.tagName.toLowerCase()
-    }));
-
-    assetPanel.innerHTML = `
-        <div class="header">
-            <h3 style="margin:0; display: inline-block; color: #212529">页面资源 (${resources.length})</h3>
-            <button id="close-panel" style="float:right; padding:2px 8px; background: #dc3545; color:white; border:none; border-radius:4px;">×</button>
-        </div>
-        <div style="padding:15px">
-            ${resources.map(res => `
-                <div class="asset-item">
-                    <img src="${res.url}" onerror="this.style.display='none'">
-                    <div class="asset-item-content">${res.alt || '无描述文本'}</div>
-                    <div class="asset-item-actions">
-                        <button class="preview-btn" 
-                                data-url="${res.url}"
-                                data-alt="${res.alt}">👀 预览</button>
-                        <button class="download-btn" 
-                                data-url="${res.url}"
-                                data-alt="${res.alt}">↓ 下载</button>
-                    </div>
-                </div>
-            `).join('')}
-        </div>
-    `;
-
-    // 关闭按钮事件监听
-    assetPanel.querySelector('#close-panel').addEventListener('click', () => {
-        assetPanel.remove();
-    });
-
-    // 拖动逻辑
-    let isDragging = false;
-    let startX, startY, initialX, initialY;
-
-    assetPanel.querySelector('.header').addEventListener('mousedown', (e) => {
-        isDragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        const rect = assetPanel.getBoundingClientRect();
-        initialX = rect.left;
-        initialY = rect.top;
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            document.removeEventListener('mousemove', onMouseMove);
-        }, { once: true });
-    });
-
-    // 在拖拽移动函数中锁定宽度
-    function onMouseMove(e) {
-        if (!isDragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-    
-        // 保持原有宽度
-        const currentWidth = assetPanel.offsetWidth;
-    
-        // 限制在窗口范围内
-        const newX = Math.max(0, Math.min(window.innerWidth - currentWidth, initialX + dx));
-        const newY = Math.max(0, Math.min(window.innerHeight - assetPanel.offsetHeight, initialY + dy));
-
-        assetPanel.style.left = `${newX}px`;
-        assetPanel.style.top = `${newY}px`;
-    }
-
-    // 预览事件监听
-    assetPanel.querySelectorAll('.preview-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const overlay = document.createElement('div');
-            overlay.className = 'preview-overlay';
-
-            const img = new Image();
-            img.className = 'preview-image';
-            img.src = btn.dataset.url;
-
-            img.onerror = () => img.alt = '图片加载失败';
-            img.onclick = e => e.stopPropagation();
-
-            overlay.appendChild(img);
-            overlay.onclick = () => overlay.remove();
-
-            // ESC键关闭
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') overlay.remove();
-            }, { once: true });
-
-            document.body.appendChild(overlay);
-        });
-    });
-
-    // 下载事件监听
-    assetPanel.querySelectorAll('.download-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const originalUrl = btn.dataset.url;
-            const altText = btn.dataset.alt || 'unnamed'; // 获取alt文本
-            // 生成安全文件名
-            let filename = altText
-                .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') // 替换非法字符
-                .substring(0, 30); // 限制长度
-
-            chrome.runtime.sendMessage({
-                action: 'download',
-                url: originalUrl,
-                filename: filename + getFileExtension(originalUrl) // 添加扩展名
-            });
-        });
-    });
-
-    // 获取文件扩展名的辅助函数
-    function getFileExtension(url) {
-        const match = url.match(/\.([a-z0-9]+)(?:[\?#]|$)/i);
-        return match ? '.' + match[1] : '.jpg';
-    }
-
-    // 防抖的重新观察
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-        startObservation();
-    }, debounceDelay);
-}
-
-// MutationObserver逻辑
-let observer;
-
-function startObservation() {
-    observer = new MutationObserver((mutations) => {
-        mutations.forEach(mutation => {
-            // 过滤插件自身产生的变化
-            if (!mutation.target.closest('#asset-panel')) {
-                showAssets();
-            }
-        });
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['src', 'srcset', 'style']
-    });
-}
-
-// 初始化时启动监听
-startObservation();
