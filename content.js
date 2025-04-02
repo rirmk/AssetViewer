@@ -100,23 +100,31 @@ const assetPanel = (() => {
     return panel;
 })();
 
-function setupDragHandlers() {
-    let isDragging = false;
-    let startX, startY, initialX, initialY;
-    assetPanel.querySelector('.header').addEventListener('mousedown', (e) => {
-        isDragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        const rect = assetPanel.getBoundingClientRect();
-        initialX = rect.left;
-        initialY = rect.top;
 
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            document.removeEventListener('mousemove', onMouseMove);
-        }, { once: true });
-    });
+let isDragging = false;
+let startX, startY, initialX, initialY;
+function setupDragHandlers() {
+    // 添加防重复绑定逻辑
+    const header = assetPanel.querySelector('.header');
+    header._hasDragHandler = header._hasDragHandler || false;
+    
+    if (!header._hasDragHandler) {
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = assetPanel.getBoundingClientRect();
+            initialX = rect.left;
+            initialY = rect.top;
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+                document.removeEventListener('mousemove', onMouseMove);
+            }, { once: true });
+        });
+        header._hasDragHandler = true;
+    }
 }
 
 function onMouseMove(e) {
